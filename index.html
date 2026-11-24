@@ -449,7 +449,6 @@ ol.order li.done::after{content:"已通過";margin-left:auto;font-size:12px;padd
 <div id="fileNote" class="ui card" hidden style="left:50%;bottom:90px;transform:translateX(-50%);padding:8px 14px;font-size:13px;max-width:calc(100vw - 32px)">目前是直接開檔（file://），瀏覽器會擋住圖片與資料；請改用資料夾裡的「啟動.bat」開啟。</div><script>if(location.protocol==="file:"){var n=document.getElementById("fileNote");n.hidden=false;setTimeout(function(){n.hidden=true},12000)}</script>
 
 <script src="vendor/three.min.js"></script>
-<script src="vendor/GLTFLoader.js"></script>
 <script>
 (function(){
 "use strict";
@@ -817,123 +816,24 @@ function occUpdate(dt){
   if (Math.abs(camera.near - OCC.near) > 0.04){ camera.near = OCC.near; camera.updateProjectionMatrix(); }
 }
 
-// ================= enhanced: 主角立體化 =================
-// 作法：原本的 2D 貼圖當正面與背面，輪廓用貼圖透明度取樣（128 格寬）沿輪廓長出側壁，側壁顏色取自貼圖邊緣像素、
-// 依面向打光；轉視角或翻身時看得到實心厚度。取樣失敗（例如 file:// 開啟被瀏覽器擋像素讀取）就退回多層疊片。
-charScene.add(new THREE.HemisphereLight(0xFFFFFF, 0xB4BEC8, 0.72));
-{ const cl = new THREE.DirectionalLight(0xFFF4E4, 0.4); cl.position.set(0.5, 1, 0.4); charScene.add(cl); }
+// ================= enhanced: 主角維持原本的 2D 立牌 =================
+// 貼圖、材質與原站相同；唯一的差別是鏡頭可以俯仰，所以立牌依俯角往後仰一部分、再補回高度，任何角度看起來都跟原本一樣高。
 function buildBaji(tex, aw, ah){
   const g = new THREE.Group(); g.rotation.order = "YXZ";
   const slab = new THREE.Group(); g.add(slab); g.userData.slab = slab;
-  const T = aw * 0.15, ox = aw * (0.5 - ART.footU), oy = ah * (0.5 - ART.footV);
-  const front = new THREE.MeshBasicMaterial({ map:tex, alphaTest:0.5, fog:false, toneMapped:false });
-  const back = new THREE.MeshBasicMaterial({ map:tex, alphaTest:0.5, fog:false, toneMapped:false, color:0xD2D2DC });
-  const side = new THREE.MeshLambertMaterial({ vertexColors:true, fog:false });
-  const fg = new THREE.PlaneGeometry(aw, ah); fg.translate(ox, oy, T / 2);
-  const bg = new THREE.PlaneGeometry(aw, ah); bg.rotateY(Math.PI); bg.translate(ox, oy, -T / 2);
-  slab.add(new THREE.Mesh(fg, front), new THREE.Mesh(bg, back));
-  let ok = false;
-  try {
-    const img = tex.image, MW = 128, MH = Math.max(8, Math.round(MW * img.height / img.width));
-    const cv = document.createElement("canvas"); cv.width = MW; cv.height = MH;
-    const cx = cv.getContext("2d", { willReadFrequently:true }); cx.drawImage(img, 0, 0, MW, MH);
-    const d = cx.getImageData(0, 0, MW, MH).data;
-    const solid = (i, j) => i >= 0 && j >= 0 && i < MW && j < MH && d[(j * MW + i) * 4 + 3] > 140;
-    const x0 = -aw * ART.footU, y0 = -ah * ART.footV, cw = aw / MW, chh = ah / MH;
-    const pos = [], nor = [], col = [];
-    const quad = (a, b, c, e, n, r, gg, bb) => {
-      // a,b,c,e 逆時針繞過外側 n
-      [a, b, c, a, c, e].forEach(p => { pos.push(p[0], p[1], p[2]); nor.push(n[0], n[1], n[2]); col.push(r, gg, bb); });
-    };
-    const z0 = -T / 2, z1 = T / 2;
-    for (let j = 0; j < MH; j++) for (let i = 0; i < MW; i++){
-      if (!solid(i, j)) continue;
-      // 邊緣像素的 RGB 常是半透明的黑：改取附近（5x5）依透明度加權的平均色，側壁才不會出現黑條
-      let sr = 0, sg = 0, sb = 0, sw = 0;
-      for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++){
-        const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= MW || jj >= MH) continue;
-        const kk = (jj * MW + ii) * 4, w = d[kk + 3] > 200 ? 1 : 0; if (!w) continue;
-        sr += d[kk]; sg += d[kk + 1]; sb += d[kk + 2]; sw++;
-      }
-      if (!sw) sw = 1;
-      const r = sr / sw / 255 * 0.9, gg = sg / sw / 255 * 0.9, bb = sb / sw / 255 * 0.9;
-      const xa = x0 + i * cw, xb = xa + cw, yt = y0 + ah - j * chh, yb = yt - chh;
-      if (!solid(i - 1, j)) quad([xa, yb, z1], [xa, yt, z1], [xa, yt, z0], [xa, yb, z0], [-1, 0, 0], r, gg, bb);
-      if (!solid(i + 1, j)) quad([xb, yb, z0], [xb, yt, z0], [xb, yt, z1], [xb, yb, z1], [1, 0, 0], r, gg, bb);
-      if (!solid(i, j - 1)) quad([xa, yt, z0], [xa, yt, z1], [xb, yt, z1], [xb, yt, z0], [0, 1, 0], r, gg, bb);
-      if (!solid(i, j + 1)) quad([xa, yb, z1], [xa, yb, z0], [xb, yb, z0], [xb, yb, z1], [0, -1, 0], r, gg, bb);
-    }
-    if (pos.length){
-      const sg = new THREE.BufferGeometry();
-      sg.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-      sg.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
-      sg.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-      slab.add(new THREE.Mesh(sg, side)); ok = true;
-    }
-  } catch (err){ ok = false; }
-  if (!ok){
-    for (let i = 1; i < 7; i++){
-      const lg = new THREE.PlaneGeometry(aw, ah); lg.translate(ox, oy, -T / 2 + T * i / 7);
-      slab.add(new THREE.Mesh(lg, i % 2 ? back : front));
-    }
-  }
-  g.material = front; g.userData.back = back; g.userData.side = side;
-  loadBaji3D(g, ah);
+  const geo = new THREE.PlaneGeometry(aw, ah);
+  geo.translate(aw * (0.5 - ART.footU), ah * (0.5 - ART.footV), 0);
+  const front = new THREE.MeshBasicMaterial({ map:tex, transparent:true, depthWrite:false, depthTest:true, alphaTest:0.02, fog:false, toneMapped:false });
+  slab.add(new THREE.Mesh(geo, front));
+  g.material = front;
   return g;
 }
-// 每幀：依鏡頭俯角把立牌往後仰（面向鏡頭）一部分、再補回高度（俯瞰時不會被壓扁、平視時不會被拉長）；顏色（結凍染色）同步到背面與側壁
-let bodyTurn = 0;
 function bajiSync(dt){
   if (!sprite) return;
-  if (!baji3dSync(dt)){
-  // 橫向移動時身體轉向行進方向（最多約 50°），側壁的厚度才看得見；停下來轉回正面
-  const sv = reduceMotion ? 0 : clampN(player.vel.dot(right) / 26, -1, 1);
-  bodyTurn += (-sv * 0.9 - bodyTurn) * Math.min(1, dt * 7);
-  sprite.rotation.y += bodyTurn;
   const p = clampN(VS.pitch, 0.05, PITCH_MAX), th = p * clampN(0.45 + (p - 0.66), 0.45, 0.95), slab = sprite.userData.slab;
   slab.rotation.x = -th; slab.scale.y = 1 / Math.cos(p - th);
-  sprite.userData.back.color.copy(sprite.material.color).multiplyScalar(0.82);
-  sprite.userData.side.color.copy(sprite.material.color);
-  }
   const vis = VS.fp < 0.85;
   sprite.visible = vis; shadowPivot.visible = vis;
-}
-
-// ================= enhanced: 主角 3D 模型（Hunyuan3D-2 由 baji.webp 單張正面圖生成，assets/baji3d.glb）=================
-// 載入成功就取代擠出的立牌；載入失敗、或網址帶 ?baji=2d 時維持立牌。
-const BAJI3D = { h:null, t:0, lean:0 };
-function loadBaji3D(g, ah){
-  if (!THREE.GLTFLoader || /[?&]baji=2d\b/.test(location.search)) return;
-  new THREE.GLTFLoader().load("assets/baji3d.glb", gltf => {
-    const root = gltf.scene, box = new THREE.Box3().setFromObject(root), size = box.getSize(new THREE.Vector3());
-    const holder = new THREE.Group(), mats = [];
-    root.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
-    holder.add(root); holder.scale.setScalar(ah / size.y);
-    root.traverse(o => {
-      if (!o.isMesh) return;
-      if (!o.geometry.attributes.normal) o.geometry.computeVertexNormals();
-      const map = o.material.map;
-      if (map){ map.encoding = THREE.LinearEncoding; map.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy()); map.needsUpdate = true; }
-      o.material = new THREE.MeshLambertMaterial({ map, fog:false });
-      mats.push(o.material);
-    });
-    g.userData.slab.visible = false; g.add(holder);
-    g.userData.model = holder; g.userData.mats = mats;
-  }, undefined, () => {});
-}
-// 3D 模型：身體朝實際行進方向轉（不再左右鏡射），停下來保持最後的面向；回傳 true 表示已處理
-function baji3dSync(dt){
-  const u = sprite.userData; if (!u.model) return false;
-  const sp = Math.hypot(player.vel.x, player.vel.z);
-  if (BAJI3D.h === null) BAJI3D.h = BAJI3D.t = yaw;
-  if (sp > 1.5) BAJI3D.t = Math.atan2(player.vel.x, player.vel.z);
-  const d = Math.atan2(Math.sin(BAJI3D.t - BAJI3D.h), Math.cos(BAJI3D.t - BAJI3D.h));
-  BAJI3D.h += d * Math.min(1, dt * 10);
-  BAJI3D.lean += ((reduceMotion ? 0 : Math.min(1, sp / 26) * 0.14) - BAJI3D.lean) * Math.min(1, dt * 8);
-  sprite.rotation.set(BAJI3D.lean, BAJI3D.h, 0);
-  sprite.scale.x = sprite.scale.z;
-  for (const m of u.mats) m.color.copy(sprite.material.color);
-  return true;
 }
 
 new THREE.TextureLoader().load(BAJI_SRC, tex => {
@@ -3247,7 +3147,7 @@ function updateBar(dt, speed){
     const gh = ART.apparentH / Math.cos(PITCH), base = sprite ? sprite.position.y : groundH(player.pos.x, player.pos.z);
     g.position.set(player.pos.x, base + gh * 0.55 * GROW.k, player.pos.z);
     g.rotation.y = yaw;
-    g.translateZ(-1.5);  // just behind the sprite, so 霸姬 is drawn in front of the wings
+    g.translateZ(-0.6);  // just behind the sprite, so 霸姬 is drawn in front of the wings
     g.scale.setScalar(Math.max(0.001, WINGS.show * GROW.k));
     const sf = Math.min(1, speed / 26), rm = reduceMotion ? 0 : 1;
     WINGS.ph += dt * (3 + sf * 9);
