@@ -287,7 +287,6 @@ ol.order li.done::after{content:"已通過";margin-left:auto;font-size:12px;padd
 #stageCard{top:calc(198px + env(safe-area-inset-top,0px))}
 #booth,#shopPanel{top:calc(260px + env(safe-area-inset-top,0px));max-height:calc(100% - 330px - env(safe-area-inset-bottom,0px))}
 #boost,#boost.shift,#summitBuff,#summitBuff.shift,#jailBuff,#jailBuff.shift,#growBuff,#growBuff.shift,#frostBuff,#frostBuff.shift{right:calc(28px + var(--mm))}
-#vig{position:fixed;inset:0;pointer-events:none;z-index:1;background:radial-gradient(ellipse at center,transparent 64%,rgba(60,83,98,.17) 100%)}
 @media (max-width:860px){
   :root{--mm:132px}
   #mm .lg{display:none}
@@ -314,7 +313,6 @@ ol.order li.done::after{content:"已通過";margin-left:auto;font-size:12px;padd
   <button type="button" data-view="follow" aria-pressed="true">跟隨</button><button type="button" data-view="top" aria-pressed="false">俯瞰</button><button type="button" data-view="low" aria-pressed="false">近景</button><button type="button" data-view="first" aria-pressed="false">第一人稱</button>
 </nav>
 <aside id="mm" class="ui card" aria-label="場景小地圖"><canvas id="mmCv" width="424" height="289" role="img" aria-label="會場配置、霸姬位置與面向"></canvas><div class="lg" id="mmLg"></div></aside>
-<div id="vig" aria-hidden="true"></div>
 
 <aside id="stageCard" class="ui card" hidden aria-live="polite">
   <h2 class="pix">主舞台 今日節目</h2>
@@ -375,9 +373,7 @@ ol.order li.done::after{content:"已通過";margin-left:auto;font-size:12px;padd
 </aside>
 
 <div id="hud" class="ui card">
-  <span class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向鍵滑行，<kbd>F</kbd> 查看攤位／互動，<kbd>Space</kbd> 跳躍，<kbd>Q</kbd><kbd>E</kbd> 轉視角（<kbd>Z</kbd><kbd>X</kbd> 轉 90°），拖曳調俯仰，<kbd>V</kbd> 切換視角，滾輪縮放</span>
-  <button id="rotL" aria-label="視角向左轉"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 4v6h6"/><path d="M5.2 15a7.5 7.5 0 1 0 1.8-7.8L3 10"/></svg></span><span class="lbl">左轉</span></button>
-  <button id="rotR" aria-label="視角向右轉"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 4v6h-6"/><path d="M18.8 15a7.5 7.5 0 1 1-1.8-7.8L21 10"/></svg></span><span class="lbl">右轉</span></button>
+  <span class="keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向鍵滑行，<kbd>F</kbd> 查看攤位／互動，<kbd>Space</kbd> 跳躍，<kbd>Q</kbd><kbd>E</kbd> 轉視角，拖曳調俯仰，<kbd>V</kbd> 切換視角，滾輪縮放</span>
   <button id="snowBtn" aria-pressed="true" aria-label="下雪"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 2v20M3.3 7l17.4 10M3.3 17l17.4-10M9 3.5l3 2.5 3-2.5M9 20.5l3-2.5 3 2.5"/></svg></span><span class="lbl">下雪：開</span></button>
 </div>
 
@@ -541,8 +537,10 @@ function brakeBurst(oldDir){
 const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpS = new THREE.Vector3();
 let spawnAcc = 0;
 
+const XOFF = (location.search.match(/[?&]x=([^&]*)/) || [])[1] || "";   // 除錯用：x=occ,props,mm,shadow 可個別關掉加強功能來比較效能
 const PERF = { max:Math.min(window.devicePixelRatio || 1, 2), ratio:1, level:0, auto:!/[?&]perf=off\b/.test(location.search), ms:16, slow:0, fast:0, warm:90 };
 PERF.ratio = PERF.max;
+if (XOFF.includes("ui")){ const st = document.createElement("style"); st.textContent = "#views,#mm{display:none!important}"; document.head.appendChild(st); }   // x=ui
 let W = 1, H = 1;
 function resize(){
   W = window.innerWidth; H = window.innerHeight;
@@ -559,8 +557,6 @@ window.addEventListener("keydown", e => {
   if (e.target && e.target.tagName === "INPUT") return;
   const d = KEYMAP[e.code];
   if (d){ keys.add(d); e.preventDefault(); }
-  if (e.code === "KeyZ") rotate(-1);
-  if (e.code === "KeyX") rotate(1);
 });
 window.addEventListener("keyup", e => { const d = KEYMAP[e.code]; if (d) keys.delete(d); });
 window.addEventListener("blur", () => keys.clear());
@@ -590,8 +586,6 @@ window.addEventListener("blur", () => keys.clear());
 
 let yawIndex = 0, yaw = Math.PI/4, yawTarget = Math.PI/4;
 function rotate(dir){ yawIndex = (yawIndex + dir + 4) % 4; yawTarget += dir * Math.PI/2; }
-document.getElementById("rotL").addEventListener("click", () => rotate(-1));
-document.getElementById("rotR").addEventListener("click", () => rotate(1));
 
 let dist = 62;
 renderer.domElement.addEventListener("wheel", e => {
@@ -664,7 +658,7 @@ window.addEventListener("blur", () => { qe.q = qe.e = false; });
   cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
 })();
 
-const _tp = new THREE.Vector3(), _ep = new THREE.Vector3(), _el = new THREE.Vector3(), _lk = new THREE.Vector3();
+const _tp = new THREE.Vector3(), _ep = new THREE.Vector3(), _el = new THREE.Vector3(), _lk = new THREE.Vector3(), _lt = new THREE.Vector3();
 function updateCamera(dt){
   const V = VIEWS[VS.mode], k = Math.min(1, dt * 6);
   VS.pitch += (VS.pitchT - VS.pitch) * k;
@@ -672,18 +666,30 @@ function updateCamera(dt){
   VS.fov += (V.fov - VS.fov) * k;
   VS.fp += ((VS.mode === "first" ? 1 : 0) - VS.fp) * Math.min(1, dt * 5);
   const fp = VS.fp * VS.fp * (3 - 2 * VS.fp);
-  const p = clampN(VS.pitch, PITCH_MIN, PITCH_MAX), camD = VS.distS * BERG_CAM.k;
-  _tp.set(camTarget.x + Math.sin(yaw) * Math.cos(p) * camD, camTarget.y + Math.sin(p) * camD, camTarget.z + Math.cos(yaw) * Math.cos(p) * camD);
+  const p = clampN(VS.pitch, PITCH_MIN, PITCH_MAX);
+  // 壓低鏡頭時不能拉太遠，也不能退到台地外面或鑽到地面下（不然畫面下半會是懸崖剖面）
+  const flat = 1 - clampN((p - 0.1) / 0.5, 0, 1), sm = flat * flat * (3 - 2 * flat);
+  let camD = Math.min(VS.distS * BERG_CAM.k, 180 - 135 * sm);
+  const hx = Math.sin(yaw) * Math.cos(p), hz = Math.cos(yaw) * Math.cos(p), LX = HX - 10, LZ = HZ - 10;
+  if (Math.abs(camTarget.x) < LX && Math.abs(camTarget.z) < LZ){
+    if (hx > 1e-4) camD = Math.min(camD, (LX - camTarget.x) / hx); else if (hx < -1e-4) camD = Math.min(camD, (-LX - camTarget.x) / hx);
+    if (hz > 1e-4) camD = Math.min(camD, (LZ - camTarget.z) / hz); else if (hz < -1e-4) camD = Math.min(camD, (-LZ - camTarget.z) / hz);
+    camD = Math.max(camD, 14);
+  }
+  _tp.set(camTarget.x + hx * camD, camTarget.y + Math.sin(p) * camD, camTarget.z + hz * camD);
+  _tp.y = Math.max(_tp.y, groundH(_tp.x, _tp.z) + 2.5);
+  // 平視時視線抬高：地平線落在畫面下半，不會半個畫面都是地板
+  _lt.copy(camTarget); _lt.y += sm * camD * 0.07;
   if (fp > 0.001){
     const q = VS.pitch, eyeY = player.gy + JUMP.y + 7.4 * GROW.k;
     _ep.set(player.pos.x, eyeY, player.pos.z);
     _el.set(_ep.x - Math.sin(yaw) * Math.cos(q) * 20, _ep.y - Math.sin(q) * 20, _ep.z - Math.cos(yaw) * Math.cos(q) * 20);
     camera.position.lerpVectors(_tp, _ep, fp);
-    _lk.lerpVectors(camTarget, _el, fp);
+    _lk.lerpVectors(_lt, _el, fp);
     camera.lookAt(_lk);
   } else {
     camera.position.copy(_tp);
-    camera.lookAt(camTarget);
+    camera.lookAt(_lt);
   }
   if (Math.abs(camera.fov - VS.fov) > 0.02){ camera.fov = VS.fov; camera.updateProjectionMatrix(); }
   occUpdate(dt);
@@ -752,9 +758,12 @@ function makeMM(){
       });
     }
   }
-  let painted = false, heading = 0, acc = 0;
+  let painted = false, heading = 0, acc = 0, lx = 1e9, lz = 1e9, ly = 1e9;
   function draw(dt, speed){
-    acc += dt; if (acc < 0.05) return; acc = 0;
+    acc += dt; if (acc < 0.1) return; acc = 0;
+    // 沒移動、沒轉視角就不重畫（重畫會讓瀏覽器重新合成這一層）
+    if (painted && Math.abs(player.pos.x - lx) < 0.8 && Math.abs(player.pos.z - lz) < 0.8 && Math.abs(yaw - ly) < 0.03) return;
+    lx = player.pos.x; lz = player.pos.z; ly = yaw;
     if (!painted){ paintBase(); painted = true; }
     ctx.drawImage(base, 0, 0);
     if (speed > 1.5) heading = Math.atan2(player.vel.x, player.vel.z);
@@ -771,49 +780,79 @@ function makeMM(){
   return { draw };
 }
 let MM = null, mmInit = false;
-function mmDraw(dt, speed){ if (!mmInit){ mmInit = true; MM = makeMM(); } if (MM) MM.draw(dt, speed); }
+function mmDraw(dt, speed){ if (XOFF.includes("mm")) return; if (!mmInit){ mmInit = true; MM = makeMM(); } if (MM) MM.draw(dt, speed); }
 
-// ================= enhanced: 主角被擋住時鏡頭「穿過」遮蔽物 =================
-// 每 0.12 秒從鏡頭往主角的胸口與頭各打一條射線；中間有東西擋住，就把鏡頭的近裁面推到主角前方，
-// 擋在中間的牆與攤位整片不畫（等於穿過去看）；沒擋住時近裁面慢慢退回原位。
-const OCC = { ray:new THREE.Raycaster(), acc:0, hit:false, near:1, ready:false, dir:new THREE.Vector3(), tgt:new THREE.Vector3(), hits:[] };
+// ================= enhanced: 主角被擋住時，擋在中間的物件變半透明 =================
+// 從鏡頭往主角（腳、胸、頭、左右）打射線，打到的物件換成半透明的材質副本，離開視線 0.5 秒後換回來。
+// 只換「被打到的那個網格」的材質，共用同一個材質的其他物件不受影響；地板、地形這類大面積的網格不參與，所以地面不會破。
+// 跑順：每 3 幀打一條射線（五條輪流），先用包圍盒預篩、只對三角形少的網格算，不會每隔一陣子卡一下。
+const OCC = { ray:new THREE.Raycaster(), i:0, ready:false, dir:new THREE.Vector3(), tgt:new THREE.Vector3(),
+  hits:[], cand:[], boxes:[], f:0, ghosts:new Map(), active:new Map(), box:new THREE.Box3(), list:[], pts:[[0, 1.2], [0, 4.2], [0, 7.8], [-2.6, 4.6], [2.6, 4.6]] };
 function occInit(){
   OCC.ready = true;
+  scene.updateMatrixWorld(true);
   scene.traverse(o => {
-    if (!o.isMesh || o.isInstancedMesh || o === floor || o === shadow) return;
+    if (!o.isMesh || o.isInstancedMesh || o === floor || o === shadow || !o.geometry || !o.geometry.attributes.position) return;
     const m = o.material; if (m && !Array.isArray(m) && m.transparent) return;
-    o.layers.enable(1);
+    const tris = (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3;
+    if (tris > 4000) return;
+    OCC.box.setFromObject(o);
+    const w = OCC.box.max.x - OCC.box.min.x, d = OCC.box.max.z - OCC.box.min.z, h = OCC.box.max.y - OCC.box.min.y;
+    if ((w > 60 && d > 60) || h < 0.6) return;   // 地板、地形、貼地的薄片
+    OCC.list.push(o); OCC.boxes.push(OCC.box.clone());
   });
-  OCC.ray.layers.set(1);
+}
+function occGhost(m){
+  let g = OCC.ghosts.get(m);
+  if (!g){ g = m.clone(); g.transparent = true; g.opacity = 0.22; g.depthWrite = false; OCC.ghosts.set(m, g); }
+  return g;
 }
 function occUpdate(dt){
-  const fpOn = VS.fp > 0.5;
-  if (fpOn) OCC.hit = false;
-  else {
-    OCC.acc += dt;
-    if (OCC.acc > 0.12){
-      OCC.acc = 0;
-      if (!OCC.ready) occInit();
-      OCC.hit = false;
-      for (const h of [3.6, 7.6]){
-        OCC.tgt.set(player.pos.x, player.gy + JUMP.y + h * GROW.k, player.pos.z);
-        OCC.dir.subVectors(OCC.tgt, camera.position);
-        const d = OCC.dir.length(); if (d < 6) continue;
-        OCC.ray.set(camera.position, OCC.dir.multiplyScalar(1 / d));
-        OCC.ray.near = 0; OCC.ray.far = d - 3;
-        OCC.hits.length = 0;
-        OCC.ray.intersectObjects(scene.children, true, OCC.hits);
-        if (OCC.hits.length){ OCC.hit = true; break; }
+  if (XOFF.includes("occ")) return;
+  if (!OCC.ready) occInit();
+  if (VS.fp < 0.5 && (++OCC.f % 3) === 0){
+    const pt = OCC.pts[OCC.i = (OCC.i + 1) % OCC.pts.length], k = GROW.k, sx = pt[0] * k;
+    OCC.tgt.set(player.pos.x + Math.cos(yaw) * sx, player.gy + JUMP.y + pt[1] * k, player.pos.z - Math.sin(yaw) * sx);
+    OCC.dir.subVectors(OCC.tgt, camera.position);
+    const d = OCC.dir.length();
+    if (d > 6){
+      OCC.ray.set(camera.position, OCC.dir.multiplyScalar(1 / d));
+      OCC.ray.near = 0; OCC.ray.far = d - 2.5;
+      OCC.hits.length = 0;
+      // 先用事先算好的包圍盒篩掉絕大多數網格，剩下的才做三角形檢查
+      OCC.cand.length = 0;
+      const R = OCC.ray.ray;
+      for (let i = 0; i < OCC.boxes.length; i++) if (R.intersectsBox(OCC.boxes[i])) OCC.cand.push(OCC.list[i]);
+      if (OCC.cand.length) OCC.ray.intersectObjects(OCC.cand, false, OCC.hits);
+      for (const hit of OCC.hits){
+        const o = hit.object;
+        let st = OCC.active.get(o);
+        if (!st){
+          st = { orig:o.material, t:0 };
+          o.material = Array.isArray(st.orig) ? st.orig.map(occGhost) : occGhost(st.orig);
+          o.renderOrder = 2;
+          OCC.active.set(o, st);
+        }
+        st.t = 0.5;
       }
     }
   }
-  let want = 1;
-  if (OCC.hit){
-    OCC.tgt.set(player.pos.x, player.gy + 4, player.pos.z);
-    want = Math.max(1, camera.position.distanceTo(OCC.tgt) - 5.5 * GROW.k - 1.5);
-  }
-  OCC.near += (want - OCC.near) * Math.min(1, dt * (want > OCC.near ? 10 : 4));
-  if (Math.abs(camera.near - OCC.near) > 0.04){ camera.near = OCC.near; camera.updateProjectionMatrix(); }
+  if (OCC.active.size) OCC.active.forEach((st, o) => {
+    st.t -= dt;
+    if (st.t <= 0){ o.material = st.orig; o.renderOrder = 0; OCC.active.delete(o); }
+  });
+}
+
+// ================= enhanced: 陰影不每幀重畫（參考 plaza-scene.js：陰影圖手動更新、範圍跟著鏡頭）=================
+// 光源位置對齊到 4 公尺的格子（影子邊緣不會跟著鏡頭抖），陰影圖隔幀更新一次，省下將近一半的陰影繪製。
+renderer.shadowMap.autoUpdate = false;
+const SHD = { n:0, x:1e9, z:1e9 };
+const _ct = new THREE.Vector3();
+function shadowTick(){
+  const gx = Math.round(camTarget.x / 4) * 4, gz = Math.round(camTarget.z / 4) * 4;
+  const moved = gx !== SHD.x || gz !== SHD.z;
+  if (moved){ SHD.x = gx; SHD.z = gz; sun.position.set(gx + 45, 100, gz + 35); sun.target.position.set(gx, camTarget.y, gz); }
+  if (moved || (++SHD.n & 1) === 0 || XOFF.includes("shadow")) renderer.shadowMap.needsUpdate = true;
 }
 
 // ================= enhanced: 主角維持原本的 2D 立牌 =================
@@ -5332,10 +5371,9 @@ function step(now){
   updateTerrain(dt);
   updateAnimals(dt);
 
-  camTarget.lerp(new THREE.Vector3(player.pos.x, 3.5 + player.gy, player.pos.z), Math.min(1, dt * 8));
+  camTarget.lerp(_ct.set(player.pos.x, 3.5 + player.gy, player.pos.z), Math.min(1, dt * 8));
   updateCamera(dt);
-  sun.position.set(camTarget.x + 45, 100, camTarget.z + 35);
-  sun.target.position.copy(camTarget);
+  shadowTick();
   rigUpdateAll();
 
   bajiSync(dt);
@@ -5350,9 +5388,10 @@ function step(now){
 }
 // ================= enhanced: 會場新增模型（程式建構的幾何，全部合併成 2 個網格＝2 個 draw call）=================
 (function buildProps(){
-  // 依 48 公尺的格子分塊：每塊各自有包圍盒，鏡頭與陰影都只畫看得到的塊
+  if (XOFF.includes("props")) return;
+  // 分成少數幾大塊（東西半場各一）：draw call 比三角形數更貴，塊數要少
   const chunks = new Map(); let cur = null, triCount = 0;
-  const chunkAt = (x, z) => { const k = Math.floor(x / 48) + "," + Math.floor(z / 48); let c = chunks.get(k); if (!c){ c = { s:[[], [], []], g:[[], [], []] }; chunks.set(k, c); } return c; };
+  const chunkAt = (x, z) => { const k = Math.floor(x / 240) + "," + Math.floor(z / 140); let c = chunks.get(k); if (!c){ c = { s:[[], [], []], g:[[], [], []] }; chunks.set(k, c); } return c; };
   const G = {
     box:new THREE.BoxGeometry(1, 1, 1).toNonIndexed(), cyl:new THREE.CylinderGeometry(1, 1, 1, 10).toNonIndexed(),
     cone:new THREE.ConeGeometry(1, 1, 10).toNonIndexed(), sph:new THREE.SphereGeometry(1, 10, 8).toNonIndexed(), oct:new THREE.OctahedronGeometry(1)
